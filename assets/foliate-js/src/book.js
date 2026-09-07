@@ -370,16 +370,30 @@ const setSelectionHandler = (view, doc, index) => {
       }, 600);
     });
   } else { // Android
-    let hasNativeSelectionStarted = false;
+    // Chromium fires `contextmenu` for a touch selection twice: at long-press (finger
+    // still down, word just selected) and again when a selection handle is released.
+    // Only the second should open the menu. A long-press released without dragging never
+    // gets a second event, so that case is finished on pointerup instead.
+    let pointerDown = false;
+    let pendingLongPress = false;
 
     doc.addEventListener('pointerdown', () => {
-      hasNativeSelectionStarted = false;
+      pointerDown = true;
+      pendingLongPress = false;
     });
 
-    // When the native selection handles appear, the browser loses control of the pointer
-    // This event signals that the user has started dragging handles
+    // The native handles took over the touch: the user started dragging.
     doc.addEventListener('pointercancel', () => {
-      hasNativeSelectionStarted = true;
+      pointerDown = false;
+      pendingLongPress = false;
+    });
+
+    doc.addEventListener('pointerup', () => {
+      pointerDown = false;
+      if (!pendingLongPress) return;
+      pendingLongPress = false;
+      if (shouldSkipPointerUp()) return;
+      handleSelection(view, doc, index);
     });
 
     doc.addEventListener('contextmenu', e => {
@@ -389,17 +403,16 @@ const setSelectionHandler = (view, doc, index) => {
         return;
       }
 
-      // If we haven't lost pointer control yet (no pointercancel),
-      // this is the "early" long-press event during drag start.
-      // We block it to prevent the custom menu from interfering with the drag.
-      if (!hasNativeSelectionStarted) {
+      // Long-press with the finger still down: block the native menu so it doesn't
+      // interfere with a following drag, and open ours on pointerup instead.
+      if (pointerDown) {
         e.preventDefault();
+        pendingLongPress = true;
         return;
       }
 
-      // If we have entered native selection mode (pointercancel happened),
-      // this contextmenu event is likely triggered by the system or user interaction
-      // after the selection phase (e.g. on release). We handle it.
+      // Handle released with no finger down: open the menu for the new range.
+      if (shouldSkipPointerUp()) return;
       handleSelection(view, doc, index);
     });
   }
