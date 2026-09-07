@@ -370,30 +370,17 @@ const setSelectionHandler = (view, doc, index) => {
       }, 600);
     });
   } else { // Android
-    // Chromium fires `contextmenu` for a touch selection twice: at long-press (finger
-    // still down, word just selected) and again when a selection handle is released.
-    // Only the second should open the menu. A long-press released without dragging never
-    // gets a second event, so that case is finished on pointerup instead.
-    let pointerDown = false;
-    let pendingLongPress = false;
+    let hasNativeSelectionStarted = false;
+    let longPressSettleTimer;
 
     doc.addEventListener('pointerdown', () => {
-      pointerDown = true;
-      pendingLongPress = false;
+      hasNativeSelectionStarted = false;
     });
 
-    // The native handles took over the touch: the user started dragging.
+    // When the native selection handles appear, the browser loses control of the pointer
+    // This event signals that the user has started dragging handles
     doc.addEventListener('pointercancel', () => {
-      pointerDown = false;
-      pendingLongPress = false;
-    });
-
-    doc.addEventListener('pointerup', () => {
-      pointerDown = false;
-      if (!pendingLongPress) return;
-      pendingLongPress = false;
-      if (shouldSkipPointerUp()) return;
-      handleSelection(view, doc, index);
+      hasNativeSelectionStarted = true;
     });
 
     doc.addEventListener('contextmenu', e => {
@@ -403,15 +390,29 @@ const setSelectionHandler = (view, doc, index) => {
         return;
       }
 
-      // Long-press with the finger still down: block the native menu so it doesn't
-      // interfere with a following drag, and open ours on pointerup instead.
-      if (pointerDown) {
+      // If we haven't lost pointer control yet (no pointercancel),
+      // this is the "early" long-press event during drag start.
+      // We block it to prevent the custom menu from interfering with the drag.
+      if (!hasNativeSelectionStarted) {
         e.preventDefault();
-        pendingLongPress = true;
+        // A long-press released without dragging gets no second contextmenu, and the
+        // touch is cancelled so there is no pointerup either. Open the menu once the
+        // selection has stayed unchanged for a moment; a drag changes it and is
+        // handled by the release event below instead.
+        const pressed = getSelectionRange(doc.getSelection())?.cloneRange();
+        clearTimeout(longPressSettleTimer);
+        longPressSettleTimer = setTimeout(() => {
+          const current = getSelectionRange(doc.getSelection());
+          if (!pressed || !current || !rangesEqual(pressed, current)) return;
+          if (shouldSkipPointerUp()) return;
+          handleSelection(view, doc, index);
+        }, 600);
         return;
       }
 
-      // Handle released with no finger down: open the menu for the new range.
+      // If we have entered native selection mode (pointercancel happened),
+      // this contextmenu event is likely triggered by the system or user interaction
+      // after the selection phase (e.g. on release). We handle it.
       if (shouldSkipPointerUp()) return;
       handleSelection(view, doc, index);
     });
