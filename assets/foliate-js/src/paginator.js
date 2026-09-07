@@ -1,3 +1,6 @@
+// eink fork: turn pages only by tap/keys. Disables finger-drag paging and flick-to-snap.
+const TAP_ONLY_PAGE_TURN = true
+
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const lerp = (min, max, x) => x * (max - min) + min
@@ -683,9 +686,9 @@ export class Paginator extends HTMLElement {
       this.#container.style.overflowY = 'auto'
     } else if (vertical) {
       this.#container.style.overflowX = 'hidden'
-      this.#container.style.overflowY = 'auto'
+      this.#container.style.overflowY = TAP_ONLY_PAGE_TURN ? 'hidden' : 'auto'
     } else {
-      this.#container.style.overflowX = 'auto'
+      this.#container.style.overflowX = TAP_ONLY_PAGE_TURN ? 'hidden' : 'auto'
       this.#container.style.overflowY = 'hidden'
     }
     if (flow === 'scrolled') {
@@ -779,7 +782,7 @@ export class Paginator extends HTMLElement {
     else element.scrollBy({ left: 0, top: delta, behavior: 'auto' })
   }
   snap(vx, vy, touchState) {
-    if (this.#isSnapping) return
+    if (this.#isSnapping || TAP_ONLY_PAGE_TURN) return
     
     const state = touchState ?? this.#touchState
     const velocity = this.#vertical ? vy : vx
